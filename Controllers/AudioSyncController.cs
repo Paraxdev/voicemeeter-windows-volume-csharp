@@ -4,14 +4,6 @@ using VoicemeeterWindowsVolume.Workers;
 
 namespace VoicemeeterWindowsVolume.Controllers;
 
-/// <summary>
-/// Orchestrates audio synchronization between Windows volume and Voicemeeter.
-/// MVC Controller: core business logic coordinating workers and Voicemeeter API.
-/// 
-/// Note: This uses the VoicemeeterRemote C API via P/Invoke through a wrapper.
-/// For a full Voicemeeter SDK integration you would reference the official
-/// VoicemeeterRemote.dll - here we provide the integration scaffold.
-/// </summary>
 public class AudioSyncController
 {
     private static AudioSyncController? _instance;
@@ -21,7 +13,7 @@ public class AudioSyncController
     private bool _voicemeeterLoaded;
     private long _lastEventTimestamp;
     private System.Threading.Timer? _engineWaiter;
-    private int _connecting = 0; // Interlocked guard — prevents concurrent ConnectVoicemeeter calls
+    private int _connecting = 0;
 
     private int? _lastVolume;
     private long _lastVolumeTime;
@@ -41,7 +33,6 @@ public class AudioSyncController
 
     private void ConnectVoicemeeter()
     {
-        // Prevent re-entry (only one connection attempt in flight at a time)
         if (System.Threading.Interlocked.CompareExchange(ref _connecting, 1, 0) != 0) return;
 
         ProcessController.WaitForProcess(@"voicemeeter(?!.*setup).*\.exe", () =>
@@ -51,7 +42,7 @@ public class AudioSyncController
                 try
                 {
                     _vm = new VoicemeeterBridge();
-                    _vm.Connect(); // retries internally until GetVoicemeeterType returns valid type
+                    _vm.Connect();
 
                     _vm.OnDisconnected += HandleVmDisconnected;
                     TrayViewController.Instance.HideVmNotDetected();
@@ -65,7 +56,6 @@ public class AudioSyncController
                         OnVoicemeeterChanged();
                     };
 
-                    // in my testing VM loads between 3s - 5s (i think it can be set in VM), so we hit the middle with 4kms
                     _engineWaiter = new System.Threading.Timer(_ =>
                     {
                         long delta = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _lastEventTimestamp;
@@ -103,7 +93,7 @@ public class AudioSyncController
         _engineWaiter = null;
         var vm = _vm;
         _vm = null;
-        vm?.Dispose(); // waits for in-flight timer callback before VBVMR_Logout
+        vm?.Dispose();
         TrayViewController.Instance.ShowVmNotDetected();
         ConnectVoicemeeter();
     }
@@ -151,7 +141,6 @@ public class AudioSyncController
 
     private void RunWinAudio()
     {
-        // Guard: only subscribe once 
         if (_audioRunning) return;
         _audioRunning = true;
 
@@ -163,7 +152,6 @@ public class AudioSyncController
             long currentTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             long timeSinceLastVolume = currentTime - _lastVolumeTime;
 
-            // Volume spike prevention
             if (volume.New == 100 && timeSinceLastVolume >= 1000)
             {
                 bool fixingVolume = _settings.IsToggleChecked("apply_volume_fix");
@@ -181,7 +169,6 @@ public class AudioSyncController
             if (_settings.IsToggleChecked("remember_volume"))
                 RememberCurrentVolume();
 
-            // Propagate to Voicemeeter
             if (_vm != null)
             {
                 foreach (var binding in TrayViewController.Instance.GetActiveBindings())
@@ -194,7 +181,7 @@ public class AudioSyncController
                     if (tokens.Length == 2)
                     {
                         try { _vm.SetParameter(tokens[0], int.Parse(tokens[1]), "Gain", gain); }
-                        catch { /* ignore parameter errors */ }
+                        catch (Exception ex) { System.Console.WriteLine($"[AudioSync] SetParameter Gain failed for {binding}: {ex.Message}"); }
                     }
                 }
             }
@@ -210,7 +197,7 @@ public class AudioSyncController
                 if (tokens.Length == 2)
                 {
                     try { _vm.SetParameter(tokens[0], int.Parse(tokens[1]), "Mute", isMute); }
-                    catch { /* ignore */ }
+                    catch (Exception ex) { System.Console.WriteLine($"[AudioSync] SetParameter Mute failed for {binding}: {ex.Message}"); }
                 }
             }
         };
@@ -218,14 +205,14 @@ public class AudioSyncController
 
     private float ConvertVolumeLinear(int windowsVolume, float gainMin, float gainMax)
     {
-        if (_settings.IsToggleChecked("limit_db_gain_to_0")) gainMax = 0;
+        if (_settings.IsToggleChecked("limit_db_gain_to_0")) gainMax = _settings.GetSettings().LimitDbGainValue;
         float gain = (windowsVolume * (gainMax - gainMin)) / 100f + gainMin;
         return MathF.Round(gain * 10f) / 10f;
     }
 
     private float ConvertVolumeLogarithmic(int windowsVolume, float gainMin, float gainMax)
     {
-        if (_settings.IsToggleChecked("limit_db_gain_to_0")) gainMax = 0;
+        if (_settings.IsToggleChecked("limit_db_gain_to_0")) gainMax = _settings.GetSettings().LimitDbGainValue;
         float amp = windowsVolume > 0
             ? MathF.Log10(windowsVolume / 100f)
             : -1000f;

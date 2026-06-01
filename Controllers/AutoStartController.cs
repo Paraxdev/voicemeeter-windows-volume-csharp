@@ -3,11 +3,6 @@ using VoicemeeterWindowsVolume.Models;
 
 namespace VoicemeeterWindowsVolume.Controllers;
 
-/// <summary>
-/// Manages auto-start at login via the HKCU Run registry key.
-/// No elevation required; scoped to current user.
-/// Also is easier than a vbs script trying to open it
-/// </summary>
 public static class AutoStartController
 {
     private const string RunKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
@@ -29,7 +24,6 @@ public static class AutoStartController
         key?.DeleteValue(AppStrings.AppName, throwOnMissingValue: false);
     }
 
-    /// <summary>Returns true if the run entry currently exists and points to this exe.</summary>
     public static bool IsEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);

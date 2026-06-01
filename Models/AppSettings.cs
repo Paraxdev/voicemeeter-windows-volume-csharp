@@ -14,7 +14,7 @@ public class ToggleSetting
 public class AudiodgSettings
 {
     [JsonPropertyName("priority")]
-    public int Priority { get; set; } = 128; // HIGH
+    public int Priority { get; set; } = 128;
 
     [JsonPropertyName("affinity")]
     public int Affinity { get; set; } = 2;
@@ -36,6 +36,9 @@ public class AppSettings
 
     [JsonPropertyName("limit_db_gain_to_0")]
     public bool LimitDbGainTo0 { get; set; } = false;
+
+    [JsonPropertyName("limit_db_gain_value")]
+    public float LimitDbGainValue { get; set; } = 0f;
 
     [JsonPropertyName("sync_mute")]
     public bool SyncMute { get; set; } = true;
@@ -65,7 +68,6 @@ public class AppSettings
         "Microsoft Streaming Service Proxy", "Volume", "Xvd"
     };
 
-    // Runtime helpers (not serialized)
     public bool GetToggle(string sid)
     {
         var t = Toggles.FirstOrDefault(x => x.Setting == sid);

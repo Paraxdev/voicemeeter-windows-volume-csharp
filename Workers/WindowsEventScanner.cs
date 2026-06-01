@@ -1,9 +1,5 @@
 namespace VoicemeeterWindowsVolume.Workers;
 
-/// <summary>
-/// Detects Windows resume-from-sleep events by monitoring SetInterval drift
-/// and polling the Windows Event Log.
-/// </summary>
 public class WindowsEventScanner
 {
     private static WindowsEventScanner? _instance;
@@ -26,7 +22,6 @@ public class WindowsEventScanner
         _lastResumeEvent = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         _lastTime = _lastResumeEvent;
 
-        // Detect resume by interval drift
         _standbyTimer = new System.Threading.Timer(_ =>
         {
             long current = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();

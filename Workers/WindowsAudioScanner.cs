@@ -2,10 +2,6 @@ using VoicemeeterWindowsVolume.Models;
 
 namespace VoicemeeterWindowsVolume.Workers;
 
-/// <summary>
-/// Polls Windows audio volume and mute state via a persistent PowerShell worker.
-/// Raises events when values change.
-/// </summary>
 public class WindowsAudioScanner
 {
     private static WindowsAudioScanner? _instance;
@@ -22,7 +18,6 @@ public class WindowsAudioScanner
     private bool _started;
     private NativeVolumeListener? _nativeListener;
 
-    // Events
     public event EventHandler? Started;
     public event EventHandler<VolumeChange>? VolumeChanged;
     public event EventHandler<MuteChange>? MuteChanged;
@@ -95,14 +90,11 @@ public class Audio {
         if (_started) return;
         _started = true;
 
-        // Prefer event-driven native WASAPI
-        // we do have a fallback path if this fails
         var native = new NativeVolumeListener();
         if (native.Start())
         {
             _nativeListener = native;
 
-            // Fire initial state so callers receive the Started event
             var (vol, muted) = native.GetCurrentState();
             HandleAudioValues(vol, muted, initial: true);
 
@@ -135,7 +127,6 @@ public class Audio {
         _started = false;
     }
 
-    // PowerShell fallback path 
     private void HandleAudioResponse(List<string> lines)
     {
         if (lines.Count < 2) return;
@@ -152,7 +143,6 @@ public class Audio {
         HandleAudioValues(rawVolume, newMuted, initial: false);
     }
 
-    // Shared handler for both native and PowerShell paths
     private void HandleAudioValues(float rawVolume, bool newMuted, bool initial)
     {
         int newVolume = (int)Math.Round(rawVolume * 100);

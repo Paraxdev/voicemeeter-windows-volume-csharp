@@ -33,7 +33,8 @@ public static class AppStrings
         public const string OpenApplicationFolder = "Open Application Folder";
         public const string Exit = "Exit";
         public const string StartWithWindows = "Start With Windows";
-        public const string LimitDbGain = "Limit Max Gain to 0dB";
+        public const string LimitDbGain = "Limit Max Gain to {0} dB";
+        public const string SetDbLimit = "Set dB Limit...";
         public const string LinearVolumeScale = "Use Linear Volume Scale";
         public const string SyncMute = "Sync Mute State";
         public const string RestoreVolume = "Restore Volume On Launch";

@@ -2,9 +2,6 @@ using System.Runtime.InteropServices;
 
 namespace VoicemeeterWindowsVolume.Workers;
 
-/// <summary>
-/// Event-driven Windows volume listener using WASAPI IAudioEndpointVolumeCallback.
-/// </summary>
 public class NativeVolumeListener : IDisposable
 {
     public event Action<float, bool>? VolumeNotification;
@@ -55,7 +52,7 @@ public class NativeVolumeListener : IDisposable
         if (_callback != null && _endpointVolume != null)
         {
             try { _endpointVolume.UnregisterControlChangeNotify(_callback); }
-            catch { /* ignore — process may be shutting down */ }
+            catch (Exception ex) { System.Console.WriteLine($"[NativeVolumeListener] UnregisterControlChangeNotify failed: {ex.Message}"); }
         }
         if (_endpointVolume != null)
         {
@@ -74,8 +71,6 @@ public class NativeVolumeListener : IDisposable
     internal void OnNotification(float volume, bool muted)
         => VolumeNotification?.Invoke(volume, muted);
 
-    //  COM callback 
-
     [ComVisible(true)]
     private class VolumeCallback : IAudioEndpointVolumeCallback
     {
@@ -89,12 +84,10 @@ public class NativeVolumeListener : IDisposable
                 var data = Marshal.PtrToStructure<AudioVolumeNotificationData>(pNotify);
                 _parent.OnNotification(data.fMasterVolume, data.bMuted);
             }
-            catch { /* never throw across COM boundary */ }
+            catch (Exception ex) { System.Console.WriteLine($"[NativeVolumeListener] OnNotify failed: {ex.Message}"); }
             return 0; // S_OK
         }
     }
-
-    //  Structs 
 
     [StructLayout(LayoutKind.Sequential)]
     private struct AudioVolumeNotificationData
@@ -103,13 +96,7 @@ public class NativeVolumeListener : IDisposable
         [MarshalAs(UnmanagedType.Bool)] public bool bMuted;
         public float fMasterVolume;
         public uint nChannels;
-        // afChannelVolumes[] follows but is not needed
     }
-
-    //  COM interface definitions 
-    //
-    // Vtable order must exactly match endpointvolume.h / mmdeviceapi.h.
-    // All methods use [PreserveSig] so we handle HRESULTs ourselves.
 
     [Guid("657804FA-D6AD-4496-8A60-352752AF4F89")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

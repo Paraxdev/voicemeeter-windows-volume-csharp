@@ -4,10 +4,6 @@ using System.Text.RegularExpressions;
 
 namespace VoicemeeterWindowsVolume.Controllers;
 
-/// <summary>
-/// Manages Windows processes: waiting, restarting, priority and affinity.
-/// MVC Controller: wraps process management side effects.
-/// </summary>
 public static class ProcessController
 {
     public static class Priorities
@@ -20,16 +16,10 @@ public static class ProcessController
         public const int Low = 64;
     }
 
-    /// <summary>
-    /// Waits until a process matching the regex is running, then invokes the callback.
-    /// Uses a WMI event subscription so the thread is idle rather than polling.
-    /// Falls back to 5-second polling if WMI is unavailable.
-    /// </summary>
     public static void WaitForProcess(string processNamePattern, Action callback)
     {
         Task.Run(() =>
         {
-            // Check if already running before subscribing.
             string? found = GetRunningProcess(processNamePattern);
             if (found != null)
             {
@@ -42,7 +32,6 @@ public static class ProcessController
 
             try
             {
-                // WMI fires an event whenever any process is created (WITHIN 2 = 2-second internal poll).
                 using var watcher = new ManagementEventWatcher(
                     new WqlEventQuery(
                         "SELECT * FROM __InstanceCreationEvent WITHIN 2 " +
@@ -62,7 +51,7 @@ public static class ProcessController
                             ready.Set();
                         }
                     }
-                    catch { /* ignore malformed WMI events */ }
+                    catch (Exception ex) { System.Console.WriteLine($"[ProcessController] WMI event error: {ex.Message}"); }
                 };
 
                 watcher.Start();
@@ -91,7 +80,7 @@ public static class ProcessController
                 if (regex.IsMatch(proc.ProcessName + ".exe"))
                     return proc.ProcessName + ".exe";
             }
-            catch { /* access denied on some processes */ }
+            catch (Exception ex) { System.Console.WriteLine($"[ProcessController] Cannot read process name: {ex.Message}"); }
         }
         return null;
     }
@@ -99,9 +88,6 @@ public static class ProcessController
     public static bool IsProcessRunning(string processNamePattern)
         => GetRunningProcess(processNamePattern) != null;
 
-    /// <summary>
-    /// Kills and restarts a process by name.
-    /// </summary>
     public static void RestartProcess(string processName)
     {
         string name = processName.Replace(".exe", "", StringComparison.OrdinalIgnoreCase);
@@ -112,9 +98,6 @@ public static class ProcessController
         );
     }
 
-    /// <summary>
-    /// Sets a process priority using WMI.
-    /// </summary>
     public static void SetProcessPriority(string processName, int priorityCode)
     {
         string name = processName.Replace(".exe", "", StringComparison.OrdinalIgnoreCase);
@@ -124,9 +107,6 @@ public static class ProcessController
         );
     }
 
-    /// <summary>
-    /// Sets a process CPU affinity mask using WMI.
-    /// </summary>
     public static void SetProcessAffinity(string processName, int affinityMask)
     {
         string name = processName.Replace(".exe", "", StringComparison.OrdinalIgnoreCase);

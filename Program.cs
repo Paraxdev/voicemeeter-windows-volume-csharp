@@ -4,9 +4,6 @@ using VoicemeeterWindowsVolume.Views;
 
 namespace VoicemeeterWindowsVolume;
 
-/// <summary>
-/// Application entry point. Wires up MVC components and starts the message loop.
-/// </summary>
 internal static class Program
 {
     private static readonly string DataDir =
@@ -24,7 +21,6 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        // Catch all unhandled exceptions and log them before exiting
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             LogFatal(e.ExceptionObject?.ToString() ?? "Unknown error");
 
@@ -38,7 +34,6 @@ internal static class Program
         {
             Directory.CreateDirectory(DataDir);
 
-            // Redirect Console.WriteLine to vmwv.log (timestamped, auto-flush)
             var logWriter = new TimestampedFileWriter(AppLogPath);
             Console.SetOut(logWriter);
 
@@ -55,13 +50,10 @@ internal static class Program
             System.Console.WriteLine(
                 $"Voicemeeter Windows Volume started, Process ID: {Environment.ProcessId}");
 
-            // Detect system theme for icon color
             string iconColor = GetSystemColor();
 
-            // Initialize View (must be on STA thread before Application.Run)
             TrayViewController.Instance.Initialize(iconColor);
 
-            // Load settings, apply to UI, then start audio sync
             SettingsController.Instance.LoadSettings(
                 settingsPath: SettingsPath,
                 defaults: new AppSettings(),
@@ -73,8 +65,6 @@ internal static class Program
                 }
             );
 
-            // ApplicationContext keeps the WinForms message pump alive without a main form.
-            // Application.Run() with no args exits immediately — we need the context.
             var ctx = new TrayApplicationContext();
             Application.Run(ctx);
         }
@@ -94,7 +84,7 @@ internal static class Program
             File.AppendAllText(LogPath,
                 $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
         }
-        catch { /* can't log — ignore */ }
+        catch { }
         System.Console.WriteLine(message);
     }
 
@@ -107,15 +97,11 @@ internal static class Program
             if (key?.GetValue("AppsUseLightTheme") is int val)
                 return val == 0 ? "dark" : "light";
         }
-        catch { /* fall through */ }
+        catch (Exception ex) { System.Console.WriteLine($"[Program] Failed to read system theme from registry: {ex.Message}"); }
         return "default";
     }
 }
 
-/// <summary>
-/// Custom ApplicationContext that keeps the WinForms message pump running
-/// for a tray-only app (no main view). Handles graceful shutdown.
-/// </summary>
 internal sealed class TrayApplicationContext : ApplicationContext
 {
     public TrayApplicationContext()
@@ -132,15 +118,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
             TrayViewController.Instance.Dispose();
             System.Console.WriteLine("clean exit");
         }
-        catch { /* best-effort cleanup */ }
+        catch (Exception ex) { System.Console.WriteLine($"[Program] Cleanup error: {ex.Message}"); }
     }
 }
 
-/// <summary>
-/// TextWriter that prepends a timestamp to every line and writes to a file with auto-flush.
-/// Replaces Console.Out so all Console.WriteLine calls are captured to vmwv.log.
-/// TODO: disable logging maybe? or log level control idk
-/// </summary>
 internal sealed class TimestampedFileWriter : TextWriter
 {
     private readonly StreamWriter _writer;

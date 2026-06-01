@@ -3,10 +3,6 @@ using VoicemeeterWindowsVolume.Models;
 
 namespace VoicemeeterWindowsVolume.Controllers;
 
-/// <summary>
-/// Manages loading and saving application settings to/from disk.
-/// MVC Controller: handles settings state and persistence.
-/// </summary>
 public class SettingsController
 {
     private static SettingsController? _instance;
@@ -35,7 +31,6 @@ public class SettingsController
             string json = File.ReadAllText(_settingsFilePath);
             var loaded = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
 
-            // backfill missing toggles from defaults
             bool backfilled = false;
             foreach (var defaultToggle in defaults.Toggles)
             {
@@ -75,9 +70,6 @@ public class SettingsController
         File.WriteAllText(_settingsFilePath, json);
     }
 
-    /// <summary>
-    /// Sync a toggle value from the tray menu back into settings, then persist.
-    /// </summary>
     public void UpdateToggle(string sid, bool value)
     {
         _settings.SetToggle(sid, value);

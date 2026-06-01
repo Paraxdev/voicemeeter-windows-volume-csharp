@@ -5,12 +5,6 @@ using System.Runtime.InteropServices;
 
 namespace VoicemeeterWindowsVolume.Views;
 
-/// <summary>
-/// MVC View: Builds and manages the system tray context menu.
-/// All menu item construction lives here, mirroring the JS menu (atleast as close as we can with wpf)
-/// 
-/// Breaks MVC as we dont really have a "View", so this does more than a view class would.
-/// </summary>
 public class TrayViewController : IDisposable
 {
     [DllImport("user32.dll")]
@@ -27,23 +21,15 @@ public class TrayViewController : IDisposable
     private NotifyIcon? _notifyIcon;
     private ContextMenuStrip? _contextMenu;
 
-    // Invisible helper form used as a stable InvokeRequired target (ContextMenuStrip
-    // has no HWND until shown, so BeginInvoke on it would throw).
     private Form? _syncForm;
-    // Binding checkboxes keyed by their sid (e.g. "Strip_0", "Bus_1")
     private readonly Dictionary<string, ToolStripMenuItem> _bindingItems = new();
 
-    // Toggle checkboxes keyed by their sid
     private readonly Dictionary<string, ToolStripMenuItem> _toggleItems = new();
 
-    // Status item shown when Voicemeeter is not connected
     private ToolStripMenuItem? _vmNotDetectedItem;
+    private ToolStripMenuItem? _limitToggleItem;
 
     private readonly SettingsController _settings = SettingsController.Instance;
-
-    // -------------------------------------------------------------------------
-    // Public API used by AudioSyncController
-    // -------------------------------------------------------------------------
 
     public IEnumerable<string> GetActiveBindings()
         => _bindingItems.Where(kv => kv.Value.Checked).Select(kv => kv.Key);
@@ -74,14 +60,8 @@ public class TrayViewController : IDisposable
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Initialization
-    // -------------------------------------------------------------------------
-
     public void Initialize(string iconColor = "default")
     {
-        // Invisible sync form — created on the STA thread, has a real HWND,
-        // used for safe cross-thread UI invocations.
         _syncForm = new Form
         {
             FormBorderStyle = FormBorderStyle.None,
@@ -94,6 +74,7 @@ public class TrayViewController : IDisposable
 
         _contextMenu = new ContextMenuStrip();
         BuildMenu(_contextMenu);
+        AttachStayOpenHandlers(_contextMenu);
 
         _notifyIcon = new NotifyIcon
         {
@@ -112,9 +93,17 @@ public class TrayViewController : IDisposable
         return SystemIcons.Application;
     }
 
-    // -------------------------------------------------------------------------
-    // Menu construction
-    // -------------------------------------------------------------------------
+    private static void AttachStayOpenHandlers(ToolStripDropDown menu)
+    {
+        menu.Closing += (s, e) =>
+        {
+            if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked)
+                e.Cancel = true;
+        };
+        foreach (ToolStripItem item in menu.Items)
+            if (item is ToolStripMenuItem mi && mi.HasDropDownItems)
+                AttachStayOpenHandlers(mi.DropDown);
+    }
 
     private void BuildMenu(ContextMenuStrip menu)
     {
@@ -124,22 +113,16 @@ public class TrayViewController : IDisposable
 
         menu.Items.Add(new ToolStripSeparator());
 
-        // Shown while Voicemeeter is not connected; hidden once the bridge connects
         _vmNotDetectedItem = new ToolStripMenuItem("VoiceMeeter not detected.") { Enabled = false };
         menu.Items.Add(_vmNotDetectedItem);
 
-        // Bindings submenu
         menu.Items.Add(BuildBindingsMenu());
-
-        // Restarts submenu
         menu.Items.Add(BuildRestartsMenu());
 
-        // Patches / Settings submenu
         menu.Items.Add(BuildPatchesMenu());
 
         menu.Items.Add(new ToolStripSeparator());
 
-        // Voicemeeter section
         menu.Items.Add(new ToolStripMenuItem(AppStrings.MenuItems.VmTitle) { Enabled = false });
         menu.Items.Add(ItemShowVoicemeeter());
         menu.Items.Add(ItemRestartVoicemeeter());
@@ -147,17 +130,14 @@ public class TrayViewController : IDisposable
 
         menu.Items.Add(new ToolStripSeparator());
 
-        // Support section
         menu.Items.Add(new ToolStripMenuItem(AppStrings.MenuItems.SupportTitle) { Enabled = false });
         
-        // Original author
         menu.Items.Add(new ToolStripMenuItem("Original Author") { Enabled = false });
         menu.Items.Add(ItemVisitGithub());
         menu.Items.Add(ItemDonate());
         
         menu.Items.Add(new ToolStripSeparator());
         
-        // Fork author section
         menu.Items.Add(new ToolStripMenuItem("Fork Author") { Enabled = false });
         menu.Items.Add(ItemVisitGithubFork());
         menu.Items.Add(ItemDonateKofi());
@@ -167,13 +147,8 @@ public class TrayViewController : IDisposable
         menu.Items.Add(ItemOpenApplicationFolder());
         menu.Items.Add(ItemExit());
 
-        // Apply saved toggle states after building
         ApplySavedToggles();
     }
-
-    // -------------------------------------------------------------------------
-    // Bindings submenu
-    // -------------------------------------------------------------------------
 
     private ToolStripMenuItem BuildBindingsMenu()
     {
@@ -203,10 +178,6 @@ public class TrayViewController : IDisposable
 
         return sub;
     }
-
-    // -------------------------------------------------------------------------
-    // Restarts submenu
-    // -------------------------------------------------------------------------
 
     private ToolStripMenuItem BuildRestartsMenu()
     {
@@ -256,7 +227,6 @@ public class TrayViewController : IDisposable
             title: AppStrings.Console.RestartReasons.AppLaunch
         ));
 
-        // Wire up device change events to restart logic
         WindowsAudioScanner.Instance.AudioDeviceChanged += (_, devices) =>
         {
             bool enabled = _settings.IsToggleChecked("restart_audio_engine_on_device_change") &&
@@ -287,7 +257,6 @@ public class TrayViewController : IDisposable
             }
         };
 
-        // Wire up Windows resume events
         Workers.WindowsEventScanner.Instance.Resume += (_, _) => RestartVmForReason(AppStrings.Console.RestartReasons.Resume);
         Workers.WindowsEventScanner.Instance.ModernResume += (_, _) => RestartVmForReason(AppStrings.Console.RestartReasons.ModernResume);
         Workers.WindowsEventScanner.Instance.MonitorResume += (_, _) => RestartVmForReason(AppStrings.Console.RestartReasons.MonitorResume);
@@ -309,10 +278,6 @@ public class TrayViewController : IDisposable
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Settings & Patches submenu
-    // -------------------------------------------------------------------------
-
     private ToolStripMenuItem BuildPatchesMenu()
     {
         var sub = new ToolStripMenuItem(AppStrings.MenuItems.ListPatches);
@@ -331,12 +296,17 @@ public class TrayViewController : IDisposable
             initIfChecked: false
         ));
 
-        sub.DropDownItems.Add(ToggleItem(
+        string FormatLimitLabel(float v) => string.Format(AppStrings.MenuItems.LimitDbGain, v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
+
+        _limitToggleItem = ToggleItem(
             sid: "limit_db_gain_to_0",
-            title: AppStrings.MenuItems.LimitDbGain,
+            title: FormatLimitLabel(_settings.GetSettings().LimitDbGainValue),
             onActivate: checked_ =>
-                System.Console.WriteLine(checked_ ? "Limiting max gain to 0dB" : "No longer limiting max gain to 0dB")
-        ));
+                System.Console.WriteLine(checked_ ? "Max gain limiting enabled" : "Max gain limiting disabled")
+        );
+        sub.DropDownItems.Add(_limitToggleItem);
+
+        sub.DropDownItems.Add(ItemSetDbLimit(_limitToggleItem, FormatLimitLabel));
 
         sub.DropDownItems.Add(ToggleItem(
             sid: "linear_volume_scale",
@@ -400,9 +370,102 @@ public class TrayViewController : IDisposable
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Voicemeeter action items
-    // -------------------------------------------------------------------------
+    private ToolStripMenuItem ItemSetDbLimit(ToolStripMenuItem limitToggle, Func<float, string> formatLimitLabel)
+    {
+        var item = new ToolStripMenuItem(AppStrings.MenuItems.SetDbLimit);
+        item.Click += (_, _) =>
+        {
+            var current = _settings.GetSettings();
+            float? val = ShowInputDialog(current.LimitDbGainValue);
+            if (val == null) return;
+            current.LimitDbGainValue = val.Value;
+            _settings.SetSettings(current);
+            _settings.SaveSettings();
+            limitToggle.Text = formatLimitLabel(val.Value);
+            System.Console.WriteLine($"dB gain limit set to {val.Value} dB");
+        };
+        return item;
+    }
+
+    private static float? ShowInputDialog(float currentValue)
+    {
+        const int MinDb = -60;
+        const int MaxDb = 12;
+
+        using var form = new Form
+        {
+            Width = 380,
+            Height = 210,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            Text = "Set dB Gain Limit",
+            StartPosition = FormStartPosition.CenterScreen,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            BackColor = Color.FromArgb(245, 245, 245),
+        };
+
+        int initialTick = Math.Clamp((int)Math.Round(currentValue), MinDb, MaxDb);
+
+        var valueLabel = new Label
+        {
+            Left = 12, Top = 14, Width = 344, Height = 38,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI", 18f, FontStyle.Bold),
+        };
+
+        var slider = new TrackBar
+        {
+            Left = 6, Top = 58, Width = 356,
+            Minimum = MinDb, Maximum = MaxDb,
+            TickFrequency = 12, SmallChange = 1, LargeChange = 6,
+            Value = initialTick,
+        };
+
+        var warning = new Label
+        {
+            Left = 12, Top = 118, Width = 348, Height = 20,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI", 8.25f),
+            Text = "High gain levels may cause hearing damage",
+        };
+
+        var ok = new Button { Text = "OK", Left = 176, Top = 140, Width = 84, Height = 28,
+            DialogResult = DialogResult.OK, FlatStyle = FlatStyle.System };
+        var cancel = new Button { Text = "Cancel", Left = 271, Top = 140, Width = 84, Height = 28,
+            DialogResult = DialogResult.Cancel, FlatStyle = FlatStyle.System };
+
+        void Refresh(int db)
+        {
+            valueLabel.Text = $"{(db > 0 ? "+" : "")}{db} dB";
+            if (db > 6)
+            {
+                valueLabel.ForeColor = Color.Firebrick;
+                warning.ForeColor = Color.Firebrick;
+                warning.Visible = true;
+            }
+            else if (db > 0)
+            {
+                valueLabel.ForeColor = Color.DarkOrange;
+                warning.ForeColor = Color.DarkOrange;
+                warning.Visible = true;
+            }
+            else
+            {
+                valueLabel.ForeColor = Color.FromArgb(20, 120, 20);
+                warning.Visible = false;
+            }
+        }
+
+        Refresh(initialTick);
+        slider.ValueChanged += (_, _) => Refresh(slider.Value);
+
+        form.Controls.AddRange(new Control[] { valueLabel, slider, warning, ok, cancel });
+        form.AcceptButton = ok;
+        form.CancelButton = cancel;
+        return form.ShowDialog() == DialogResult.OK ? (float)slider.Value : null;
+    }
+
+
 
     private static ToolStripMenuItem ItemShowVoicemeeter()
     {
@@ -412,7 +475,6 @@ public class TrayViewController : IDisposable
             string? procName = ProcessController.GetRunningProcess(@"voicemeeter(?!.*setup).*\.exe");
             if (procName != null)
             {
-                // Find the process and bring its window to foreground
                 var processes = System.Diagnostics.Process.GetProcessesByName(
                     System.IO.Path.GetFileNameWithoutExtension(procName));
                 
@@ -469,17 +531,12 @@ public class TrayViewController : IDisposable
         return item;
     }
 
-    // -------------------------------------------------------------------------
-    // Support items
-    // -------------------------------------------------------------------------
-
     private ToolStripMenuItem ItemDonate()
     {
         var item = new ToolStripMenuItem(AppStrings.MenuItems.Donate);
         item.Click += (_, _) =>
             PowerShellRunner.Run("Start-Process \"https://www.paypal.com/donate?hosted_button_id=JBDM2H96RNKH8\"");
 
-        // Hide if disabled in settings
         if (_settings.GetSettings().DisableDonate)
             item.Visible = false;
 
@@ -510,10 +567,6 @@ public class TrayViewController : IDisposable
         return item;
     }
 
-    // -------------------------------------------------------------------------
-    // Utility items
-    // -------------------------------------------------------------------------
-
     private static ToolStripMenuItem ItemOpenApplicationFolder()
     {
         var item = new ToolStripMenuItem(AppStrings.MenuItems.OpenApplicationFolder);
@@ -529,10 +582,6 @@ public class TrayViewController : IDisposable
         return item;
     }
 
-    // -------------------------------------------------------------------------
-    // Toggle helper
-    // -------------------------------------------------------------------------
-
     private ToolStripMenuItem ToggleItem(
         string sid,
         string title,
@@ -546,11 +595,9 @@ public class TrayViewController : IDisposable
         item.Click += (_, _) =>
         {
             _settings.UpdateToggle(sid, item.Checked);
-            // Also sync binding items if they have sids
             onActivate?.Invoke(item.Checked);
         };
 
-        // If the saved setting says checked, activate on init
         if (initIfChecked)
         {
             bool saved = _settings.IsToggleChecked(sid);
@@ -565,10 +612,6 @@ public class TrayViewController : IDisposable
         _settings.UpdateToggle(sid, value);
     }
 
-    // -------------------------------------------------------------------------
-    // Apply saved settings to UI after load
-    // -------------------------------------------------------------------------
-
     public void ApplySavedToggles()
     {
         var settings = _settings.GetSettings();
@@ -579,17 +622,16 @@ public class TrayViewController : IDisposable
             if (_bindingItems.TryGetValue(toggle.Setting, out var bindItem))
                 bindItem.Checked = toggle.Value;
         }
-    }
 
-    // -------------------------------------------------------------------------
-    // Binding label refresh from Voicemeeter
-    // -------------------------------------------------------------------------
+        if (_limitToggleItem != null)
+            _limitToggleItem.Text = string.Format(AppStrings.MenuItems.LimitDbGain,
+                settings.LimitDbGainValue.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
+    }
 
     private System.Threading.Timer? _bindingDebounceTimer;
 
     private void RefreshBindingLabels()
     {
-        // Debounce: wait 5s after last call before actually running
         _bindingDebounceTimer?.Dispose();
         _bindingDebounceTimer = new System.Threading.Timer(_ =>
         {
@@ -631,8 +673,6 @@ public class TrayViewController : IDisposable
             });
         }, null, 5000, Timeout.Infinite);
     }
-
-    // -------------------------------------------------------------------------
 
     public void Dispose()
     {
